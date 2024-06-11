@@ -1,0 +1,130 @@
+#include <PID_v1.h>
+#include <NewPing.h>
+
+// IR sensors
+const int numSensors = 5;
+const int sensorPins[numSensors] = {A0, A1, A2, A3, A4};
+int sensorValues[numSensors];
+
+// Motor pins
+const int motorLeftForward = 3;
+const int motorLeftBackward = 4;
+const int motorRightForward = 5;
+const int motorRightBackward = 6;
+
+// PID parameters
+double setPoint = 0;
+double input = 0;
+double output = 0;
+double Kp = 1.0, Ki = 0.0, Kd = 0.0;
+PID myPID(&input, &output, &setPoint, Kp, Ki, Kd, DIRECT);
+
+// Ultrasonic sensor pins
+#define TRIG_PIN 10
+#define ECHO_PIN 11
+#define MAX_DISTANCE 200 // Maximum distance to detect obstacles in cm
+
+NewPing sonar(TRIG_PIN, ECHO_PIN, MAX_DISTANCE);
+
+void setup() {
+  // Initialize motor pins
+  pinMode(motorLeftForward, OUTPUT);
+  pinMode(motorLeftBackward, OUTPUT);
+  pinMode(motorRightForward, OUTPUT);
+  pinMode(motorRightBackward, OUTPUT);
+
+  // Initialize PID
+  myPID.SetMode(AUTOMATIC);
+  myPID.SetOutputLimits(-255, 255);
+
+  // Initialize Serial for debugging
+  Serial.begin(9600);
+}
+
+void loop() {
+  // Read sensor values
+  for (int i = 0; i < numSensors; i++) {
+    sensorValues[i] = analogRead(sensorPins[i]);
+  }
+
+  // Calculate position
+  int position = calculatePosition(sensorValues);
+
+  // Set PID input to position
+  input = position;
+
+  // Compute PID output
+  myPID.Compute();
+
+  // Get distance from the ultrasonic sensor
+  unsigned int distance = sonar.ping_cm();
+
+  // If an obstacle is detected within 20 cm, stop the car
+  if (distance > 0 && distance < 20) {
+    stopCar();
+  } else {
+    // Use PID output to control motors
+    controlMotors(output);
+  }
+
+  // Debugging information
+  Serial.print("Position: ");
+  Serial.print(position);
+  Serial.print(" Output: ");
+  Serial.print(output);
+  Serial.print(" Distance: ");
+  Serial.println(distance);
+
+  delay(100);
+}
+
+int calculatePosition(int *sensorValues) {
+  long weightedSum = 0;
+  int sum = 0;
+
+  for (int i = 0; i < numSensors; i++) {
+    weightedSum += (long)sensorValues[i] * (i * 100);
+    sum += sensorValues[i];
+  }
+
+  if (sum == 0) {
+    return 0; // Default position if no line is detected
+  } else {
+    return weightedSum / sum;
+  }
+}
+
+void controlMotors(double pidOutput) {
+  int baseSpeed = 150; // Base speed of the motors
+
+  int leftMotorSpeed = baseSpeed + pidOutput;
+  int rightMotorSpeed = baseSpeed - pidOutput;
+
+  // Constrain motor speeds to allowable range
+  leftMotorSpeed = constrain(leftMotorSpeed, -255, 255);
+  rightMotorSpeed = constrain(rightMotorSpeed, -255, 255);
+
+  // Set motor speeds
+  if (leftMotorSpeed > 0) {
+    analogWrite(motorLeftForward, leftMotorSpeed);
+    analogWrite(motorLeftBackward, 0);
+  } else {
+    analogWrite(motorLeftForward, 0);
+    analogWrite(motorLeftBackward, -leftMotorSpeed);
+  }
+
+  if (rightMotorSpeed > 0) {
+    analogWrite(motorRightForward, rightMotorSpeed);
+    analogWrite(motorRightBackward, 0);
+  } else {
+    analogWrite(motorRightForward, 0);
+    analogWrite(motorRightBackward, -rightMotorSpeed);
+  }
+}
+
+void stopCar() {
+  analogWrite(motorLeftForward, 0);
+  analogWrite(motorLeftBackward, 0);
+  analogWrite(motorRightForward, 0);
+  analogWrite(motorRightBackward, 0);
+}
